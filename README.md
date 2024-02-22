@@ -1,5 +1,6 @@
 # HCL Communities Cloner
 This PowerShell script leverages the XML API to clone HCL Connections community folders onto local filesystem. It's designed to replicate the folder structure of specified communities, preserving the last modified dates for both folders and files.
+ **It only clones the first 500 files per folder, 500 folders per community and 500 communitys** (It works recursive, so it will clone folders within folders within folders, ...)
 
 ## Setup Instructions
 To prepare for using this script, please follow these steps:
