@@ -4,7 +4,7 @@ This PowerShell script leverages the XML API to clone HCL Connections community 
 
 ## Setup Instructions
 To prepare for using this script, please follow these steps:
-1. **Configure Server URL**: Assign your server's URL to the `baseServer` variable at the top of the `.ps1` file. (example: `https://my.company`)
+1. **Configure Server URL**: Assign your server's URL to the `baseServer` and `cookieDomain` variable at the top of the `.ps1` file. (example: `https://my.company`)
 2. **Authentication Token**: Obtain your `LtpaToken2` cookie from your web browser. This token is necessary for authentication.
 3. **Specify Communities**: List the names of the communities you wish to clone in the `communitys.txt` file. Use "ALL" to clone all available communities.
 

@@ -17,7 +17,8 @@ param (
 )
 
 # Base URL of the API
-$baseServer = ""
+$baseServer = "" # Update this to the base URL of your API
+$cookieDomain = "" # Update this to the domain of your API
 $baseUri = "$baseServer/files/form/api"
 
 $cookieFile = "./ltpaToken.txt"
@@ -62,7 +63,7 @@ $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 $cookie = New-Object System.Net.Cookie
 $cookie.Name = "LtpaToken2"
 $cookie.Value = $cookieValue
-$cookie.Domain = ".int.n-ergie" # Update this to the domain of your API
+$cookie.Domain = $cookieDomain # Update this to the domain of your API
 $session.Cookies.Add($cookie)
 
 # A Function that you pass a function that gets retryed in case of failure on the first try
