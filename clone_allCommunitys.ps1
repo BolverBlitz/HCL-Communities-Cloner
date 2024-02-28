@@ -1,7 +1,16 @@
 # Author: BolverBlitz (Marc)
 # This is free to use and modify. (MIT)
 
-# How to get your token:
+# COLORFUL LOGS <3
+# Most logs are with color so you can spot issues right away
+# Red: Human should check
+# Magenta: Deleting Files
+# Green: Writing Files
+# Yellow: Slow actions
+# Gray: Markers where the script currently is (Community or Folder)
+# Cyan: Modifying Metadata of files / folders
+
+# How to get your token: (The cookieDomain is right next to the token)
 # Open community
 # Press F12 (Don´t do that when a scamer asks you this, but i´m a nice guy - So Don´t worry about it"
 # Go to "Network" tab
@@ -16,9 +25,17 @@ param (
     [int]$waitInLoop = 0
 )
 
-# Base URL of the API
-$baseServer = "" # Update this to the base URL of your API
-$cookieDomain = "" # Update this to the domain of your API
+# Path to 7-Zip Executable (Needed for deflation, because otherwise UTF8 Chars will be broken)
+$sevenZipPath = "C:\Program Files\7-Zip\7z.exe"
+
+if (!(Test-Path $sevenZipPath)) {
+  Write-Error "7-Zip.exe not found!!"
+  exit
+}
+
+# Base URL of the API (Edit Stuff here)
+$cookieDomain = ""
+$baseServer = ""
 $baseUri = "$baseServer/files/form/api"
 
 $cookieFile = "./ltpaToken.txt"
@@ -63,7 +80,7 @@ $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 $cookie = New-Object System.Net.Cookie
 $cookie.Name = "LtpaToken2"
 $cookie.Value = $cookieValue
-$cookie.Domain = $cookieDomain # Update this to the domain of your API
+$cookie.Domain = "$cookieDomain" # Update this to the domain of your API
 $session.Cookies.Add($cookie)
 
 # A Function that you pass a function that gets retryed in case of failure on the first try
@@ -97,11 +114,12 @@ function Write-Log {
     param (
         [Parameter(Mandatory=$true)]
         [string]$Message,
+        [string]$txtColor = "White",
         [string]$LogFilePath = "./log.txt" # Default log path
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "$($timestamp): $Message"
-    Write-Host $logEntry
+    Write-Host $logEntry -ForegroundColor $txtColor
 
     Invoke-WithRetry -ScriptBlock {
         $logEntry | Out-File -FilePath $LogFilePath -Append -Encoding UTF8 -ErrorAction Stop
@@ -153,7 +171,7 @@ function Process-Entries {
 
     # Switch API Endpoint based on function parameter
     if ($isCommunity) {
-        Write-Log "Making a Community Request for $parentPath"
+        Write-Log "Making a Community Request for $parentPath" "Gray"
         $url = "$baseUri/communitycollection/$uuid/feed?pageSize=500&acls=true&collectionAcls=true&category=collection&type=all&sK=updated&sO=desc"
     } else {
         $url = "$baseUri/collection/$uuid/feed?page=1&pageSize=500&sK=modified&sO=dsc&sC=all&acls=true&collectionAcls=true&includePolicy=true&category=all&includeAncestors=true"
@@ -161,7 +179,6 @@ function Process-Entries {
 
     try {
         $ErrorActionPreference = 'Stop'
-        Write-Host $url
         $response = Invoke-WebRequest -Uri $url -WebSession $session
         $xml = [xml]$response.Content
     } catch [System.Net.WebException] {
@@ -197,7 +214,7 @@ function Process-Entries {
                 $downloadLink = $entry.SelectSingleNode("atom:link[4]/@href", $ns).Value
                 $lastModifiedDate = $entry.SelectSingleNode("td:modified", $ns).'#text'
 
-                Write-Log "Downloading file: $title to $entryPath modifyed at $lastModifiedDate"
+                Write-Log "Downloading file: $title to $entryPath modifyed at $lastModifiedDate" "Green"
                 Download-File -fileUrl $downloadLink -localPath $entryPath -lastModifiedDate $lastModifiedDate
             }
             "collection" {
@@ -207,14 +224,14 @@ function Process-Entries {
                     # Get modify date of the folder
                     $lastModifiedDate = $entry.SelectSingleNode("td:modified", $ns).'#text'
                     $lastModifiedDateTime = [datetime]::Parse($lastModifiedDate, [Globalization.CultureInfo]::InvariantCulture)
-                    New-Item -ItemType Directory -Path $entryPath > $null # Creat folder
+                    New-Item -ItemType Directory -Path $entryPath > $null # Create folder
                     Set-ItemProperty -Path $entryPath -Name LastWriteTime -Value $lastModifiedDateTime # Set last modify date for the folder
                 }
-                Write-Log "Processing folder: $title with UUID $newUuid at $entryPath"
+                Write-Log "Processing folder: $title with UUID $newUuid at $entryPath" "Gray"
                 Process-Entries -uuid $newUuid -parentPath $entryPath
             }
             default {
-                Write-Log "Unknown category $category for $title"
+                Write-Log "Unknown category $category for $title" "Red"
             }
         }
     }
@@ -237,21 +254,89 @@ function Process-Entries {
                 $lastModifiedDate = $entry.SelectSingleNode("td:modified", $ns).'#text'
                 $lastModifiedDateTime = [datetime]::Parse($lastModifiedDate, [Globalization.CultureInfo]::InvariantCulture)
                 Set-ItemProperty -Path $entryPath -Name LastWriteTime -Value $lastModifiedDateTime # Set last modify date for the folder
-                Write-Log "Applying modify date to folder: $title with UUID $newUuid at $entryPath"
+                Write-Log "Applying modify date to folder: $title with UUID $newUuid at $entryPath" "Gray"
             }
             default {
-                Write-Log "Unknown category $category for $title"
+                Write-Log "Unknown category $category for $title" "Red"
             }
         }
     }
 }
 
+# Download all Files and then dedupe them based on the already downloaded folders
+function Process-Files {
+    param (
+        [string]$uuid,
+        [string]$parentPath = "."  # Default Path
+    )
+
+    $fileUrl = "$baseUri/communitycollection/$uuid/media/files.zip"
+
+    if (!(Test-Path -Path $title)) {
+        New-Item -ItemType Directory -Path $parentPath > $null
+    }
+
+    Write-Log "Downloading and unziping all files for Community $parentPath with UUID $uuid (This may take a while)" "Yellow"
+    $communityFilePath = Join-Path $parentPath "$uuid-files.zip"
+    Invoke-WebRequest -Uri $fileUrl -WebSession $session -OutFile $communityFilePath
+
+    $communityFilePathUnZip = Join-Path $parentPath "$uuid-files"
+    # Gonna retry because on remote filesystems (SMB Share) it might fail with higher latancy
+    & $sevenZipPath x "$communityFilePath" -o"$communityFilePathUnZip" -aoa -sccUTF-8 2>$errorLog | Out-Null
+
+    # Check for errors from 7-zip (Stuscode)
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "An error occurred during extraction of 7-zip. $errorLog."
+        exit $LASTEXITCODE
+    }
+
+    Remove-Item $communityFilePath # Delete ZIP File from local FS
+
+    # Check if ZIP file generated a output folder, it won´t do that when there where no Files in the community
+    if (!(Test-Path $communityFilePathUnZip)) {
+        Write-Log "Community $parentPath with UUID $uuid may not contain files, as the ZIP Archive resulted in 0 Files" "Red"
+        return
+    }
+
+    $rootFolder = $parentPath
+    $allFilesFolderName = "$uuid-files" # Only the name of the folder, not the full path
+
+    # Get all directories in the root folder except the "all files" folder
+    $directories = Get-ChildItem -Path $rootFolder -Directory | Where-Object Name -ne $allFilesFolderName
+
+    $filesInDirectories = @() # Get Folder List
+
+    # Iterate over each directory and subdirectory to populate list
+    foreach ($dir in $directories) {
+        $filesInDirectories += Get-ChildItem -Path $dir.FullName -File -Recurse | Where-Object DirectoryName -notlike "*\$allFilesFolderName*" | ForEach-Object { $_.Name }
+    }
+
+    # Remove duplicate file names
+    $filesInDirectories = $filesInDirectories | Select-Object -Unique
+
+    # Define the full path to the "all files" folder
+    $allFilesFolderPath = Join-Path -Path $rootFolder -ChildPath $allFilesFolderName
+
+    # Get all files from the "all files" folder
+    $allFiles = Get-ChildItem -Path $allFilesFolderPath -File
+
+    # Iterate over each file in the "all files" folder
+    foreach ($file in $allFiles) {
+        # If the file name is in the list of files in the directories, delete it
+        if ($filesInDirectories -contains $file.Name) {
+            Write-Log "Deleting file: $($file.FullName)" "Magenta"
+            Remove-Item -Path $file.FullName
+        }
+}
+
+}
+
+# Collect all communitys for "my" or "owned" with UUIDs and Names
 function Process-Communitys {
     $url = "$baseServer/communities/service/atom/forms/catalog/$($communityRoute)?results=500&start=0&sortKey=update_date&sortOrder=desc&facet=%7B%22id%22%3A%22tag%22%2C%22count%22%3A%2030%7D&format=XML&dojo.preventCache=$preventCache"
 
     try {
         $ErrorActionPreference = 'Stop'
-        Write-Host $url
         $response = Invoke-WebRequest -Uri $url -WebSession $session
         $xml = [xml]$response.Content
     } catch [System.Net.WebException] {
@@ -261,8 +346,8 @@ function Process-Communitys {
 
         # Handle HTTP Status Code
         switch ($statusCode) {
-            'Unauthorized' { Write-Host "Error (401): Cookie Monster dosn´t like old cookies :(" }
-            'InternalServerError' { Write-Host "Error (500): The server encountered an internal error." }
+            'Unauthorized' { Write-Log "Error (401): Cookie Monster dosn´t like old cookies :(" "Red" }
+            'InternalServerError' { Write-Log "Error (500): The server encountered an internal error." "Red" }
             Default { Write-Host "Error: An unexpected error occurred. Status code: $statusCode" }
         }
     }
@@ -285,13 +370,15 @@ function Process-Communitys {
 
         if ("ALL" -in $communityValue -or $title -in $communityValue) {
             Process-Entries -uuid $id -parentPath $title -isCommunity $true
+            Process-Files -uuid $id -parentPath $title
         } else {
-            Write-Log "Skipping $title with UUID $id because it's not in communitys.txt"
+            Write-Log "Skipping $title with UUID $id because it's not in communitys.txt" "Yellow"
         }
     }
 }
 
 # Start Program
+Clear-Host
 Write-Host ""
 Write-Host "########################"
 Write-Host "# HCL Community Cloner #"
@@ -299,13 +386,17 @@ Write-Host "# By BolverBlitz(Marc) #"
 Write-Host "#    Version 2.0.0     #"
 Write-Host "########################"
 Write-Host ""
-Write-Host "Starting program with a internal delay of $waitInLoop ms"
+Write-Log "Starting program with a internal delay of $waitInLoop ms"
 if ($communityRoute -eq "my") { $communityOf = "Checking all communitys you are a member of." }
 if ($communityRoute -eq "owned") { $communityOf = "Checking only communitys you are a owner of." }
-Write-Log $communityOf
-$promtMessage = "$($communityOf)`nDo you want to proceed cloning the following $($communityValue.Count) communitys?`n"
-foreach ($community in $communityValue) {
-    $promtMessage = "$($promtMessage)- $community`n"
+Write-Log $communityOf # Log one of the Lines above
+if("ALL" -in $communityValue) {
+    $promtMessage = "$($communityOf)`nDo you want to proceed cloning all of those communitys?`n"
+} else {
+    $promtMessage = "$($communityOf)`nDo you want to proceed cloning the following $($communityValue.Count) communitys?`n"
+    foreach ($community in $communityValue) {
+        $promtMessage = "$($promtMessage)- $community`n"
+    }
 }
 Write-Host ""
 
