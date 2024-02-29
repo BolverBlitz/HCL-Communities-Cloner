@@ -1,4 +1,5 @@
 # Author: BolverBlitz (Marc)
+# Github: https://github.com/BolverBlitz/HCL-Communities-Cloner
 # This is free to use and modify. (MIT)
 
 # COLORFUL LOGS <3
@@ -34,7 +35,7 @@ if (!(Test-Path $sevenZipPath)) {
 }
 
 # Base URL of the API (Edit Stuff here)
-$cookieDomain = ""
+$cookieDomain = "" # Update this to the domain of your API
 $baseServer = ""
 $baseUri = "$baseServer/files/form/api"
 
@@ -80,8 +81,18 @@ $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 $cookie = New-Object System.Net.Cookie
 $cookie.Name = "LtpaToken2"
 $cookie.Value = $cookieValue
-$cookie.Domain = "$cookieDomain" # Update this to the domain of your API
+$cookie.Domain = "$cookieDomain"
 $session.Cookies.Add($cookie)
+
+# Special Cases for Community Name Filtering
+$specialCasePatterns = @()
+function Special-Case-Function {
+    param(
+        [string]$title
+    )
+    # Do something in those cases. $title refers to the full community name.
+}
+
 
 # A Function that you pass a function that gets retryed in case of failure on the first try
 function Invoke-WithRetry {
@@ -188,9 +199,9 @@ function Process-Entries {
 
         # Handle HTTP Status Code
         switch ($statusCode) {
-            'Unauthorized' { Write-Host "Error (401): Cookie Monster dosn´t like old cookies :(" }
-            'InternalServerError' { Write-Host "Error (500): The server encountered an internal error." }
-            Default { Write-Host "Error: An unexpected error occurred. Status code: $statusCode" }
+            'Unauthorized' { Write-Log "Error (401): Cookie Monster dosn´t like old cookies :(" "Red" }
+            'InternalServerError' { Write-Log "Error (500): The server encountered an internal error." "Red" }
+            Default { Write-Log "Error: An unexpected error occurred. Status code: $statusCode" "Red" }
         }
     }
 
@@ -348,7 +359,7 @@ function Process-Communitys {
         switch ($statusCode) {
             'Unauthorized' { Write-Log "Error (401): Cookie Monster dosn´t like old cookies :(" "Red" }
             'InternalServerError' { Write-Log "Error (500): The server encountered an internal error." "Red" }
-            Default { Write-Host "Error: An unexpected error occurred. Status code: $statusCode" }
+            Default { Write-Log "Error: An unexpected error occurred. Status code: $statusCode" "Red" }
         }
     }
 
@@ -357,11 +368,29 @@ function Process-Communitys {
     $ns.AddNamespace("td", "urn:ibm.com/td")
     $ns.AddNamespace("atom", "http://www.w3.org/2005/Atom")
 
+    # Loop over all items within a uuid to check for special cases
+    foreach ($entry in $xml.SelectNodes("//atom:feed/atom:entry", $ns)) {
+        $id = $entry.SelectSingleNode("atom:id", $ns).'#text'
+        $titleNode = $entry.SelectSingleNode("atom:title", $ns)
+        $title = $null # Define empty var
+        if ($titleNode) {
+            $title = $titleNode.get_InnerXml()
+            $title = $title -replace '<atom:title>|</atom:title>', ''
+        }
+        $title = [regex]::Replace($title, '<!\[CDATA\[(.*?)\]\]>', '$1') # Clean up the title
+
+        foreach ($pattern in $specialCasePatterns) {
+            if ($title.Contains($pattern)) {
+                Special-Case-Function $title
+            }
+        }
+    }
+
     # Loop over all items within a uuid
     foreach ($entry in $xml.SelectNodes("//atom:feed/atom:entry", $ns)) {
         $id = $entry.SelectSingleNode("atom:id", $ns).'#text'
         $titleNode = $entry.SelectSingleNode("atom:title", $ns)
-        $title = $null
+        $title = $null # Define empty var
         if ($titleNode) {
             $title = $titleNode.get_InnerXml()
             $title = $title -replace '<atom:title>|</atom:title>', ''
@@ -383,8 +412,10 @@ Write-Host ""
 Write-Host "########################"
 Write-Host "# HCL Community Cloner #"
 Write-Host "# By BolverBlitz(Marc) #"
-Write-Host "#    Version 2.0.0     #"
+Write-Host "#    Version 3.0.0     #"
 Write-Host "########################"
+Write-Host ""
+Write-Host "Give it a Star: https://github.com/BolverBlitz/HCL-Communities-Cloner"
 Write-Host ""
 Write-Log "Starting program with a internal delay of $waitInLoop ms"
 if ($communityRoute -eq "my") { $communityOf = "Checking all communitys you are a member of." }
