@@ -2,9 +2,12 @@
 This PowerShell script leverages the XML API to clone HCL Connections community folders onto local filesystem. It's designed to replicate the folder structure of specified communities, preserving the last modified dates for both folders and files.
  **It only clones the first 500 files per folder, 500 folders per community and 500 communitys** (It works recursive, so it will clone folders within folders within folders, ...)
 
+## Requirements
+You have to have z-7ip executable avaible. Powershell and .NET libs can´t deal with the UTF-8 encoding from ZIP files made by HCL-Communities.
+
 ## Setup Instructions
 To prepare for using this script, please follow these steps:
-1. **Configure Server URL**: Assign your server's URL to the `baseServer` and `cookieDomain` variable at the top of the `.ps1` file. (example: `https://my.company`)
+1. **Configure Server URL**: Assign your server's URL and 7-zip path to the `baseServer`, `cookieDomain` and `sevenZipPath` variable at the top of the `.ps1` file. (example: `https://my.company`)
 2. **Authentication Token**: Obtain your `LtpaToken2` cookie from your web browser. This token is necessary for authentication.
 3. **Specify Communities**: List the names of the communities you wish to clone in the `communitys.txt` file. Use "ALL" to clone all available communities.
 
@@ -27,6 +30,15 @@ Execute the script with optional parameters for `Route` and `Delay`:
 6. In the details pane that opens, find and click on "Cookies". (You might need to double-click.)
 7. Look for the "LtpaToken2" cookie. Right-click the value next to it and select "Copy".
 8. Create a file named `ltpaToken.txt` in the same directory as this script and paste your copied token there.
+
+## Colored logs
+Most lines logged are colored so you can spot issues right away, here is a list of possible colors:
+- **Red**: Human should check
+-**Magenta**: Deleting Files
+- **Green**: Writing Files
+- **Yellow**: Slow actions
+- **Gray**: Markers where the script currently is (Community or Folder)
+- **Cyan**: Modifying Metadata of files / folders
 
 
 ## Notes
