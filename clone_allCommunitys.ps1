@@ -19,7 +19,7 @@
 # Click on the very first thing from the list
 # Click on cookies in the section that just opend by your click (Sometimes you have to douple click)
 # Look for "LtpaToken2" and richtklick the value in the cell behind and click copy
-# Make a file where this scrit is thats named ltpaToken.txt and palce your token there
+# Make a file where this script is located. The file must be named ltpaToken.txt and write your token inside this file.
 
 param (
     [string]$communityRoute = "my",
@@ -345,10 +345,23 @@ function Process-Files {
 # Collect all communitys for "my" or "owned" with UUIDs and Names
 function Process-Communitys {
     $url = "$baseServer/communities/service/atom/forms/catalog/$($communityRoute)?results=500&start=0&sortKey=update_date&sortOrder=desc&facet=%7B%22id%22%3A%22tag%22%2C%22count%22%3A%2030%7D&format=XML&dojo.preventCache=$preventCache"
+    $ErrorActionPreference = 'Stop'
 
     try {
-        $ErrorActionPreference = 'Stop'
+
         $response = Invoke-WebRequest -Uri $url -WebSession $session
+        if ($response.Headers.'Content-Type' -match 'text/html') {
+            # Check if the HTML content includes the specific error message.
+            if ($response.Content -match "We\'ve encountered a problem") {
+                Write-Log "Error: The API returned an HTML page indicating a problem was encountered." "Red"
+                Write-Log "This most likly means your token isn´t correct (Make sure its still valid)." "Red"
+                exit
+            } else {
+                Write-Log "Error: The API returned an HTML page indicating a problem was encountered." "Red"
+                write-Output $response.Content
+                exit
+            }
+        }
         $xml = [xml]$response.Content
     } catch [System.Net.WebException] {
         $response = $_.Exception.Response
