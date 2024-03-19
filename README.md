@@ -9,7 +9,11 @@ You have to have z-7ip executable avaible. Powershell and .NET libs can´t deal 
 To prepare for using this script, please follow these steps:
 1. **Configure Server URL**: Assign your server's URL and 7-zip path to the `baseServer`, `cookieDomain` and `sevenZipPath` variable at the top of the `.ps1` file. (example: `https://my.company`)
 2. **Authentication Token**: Obtain your `LtpaToken2` cookie from your web browser. This token is necessary for authentication.
-3. **Specify Communities**: List the names of the communities you wish to clone in the `communitys.txt` file. Use "ALL" to clone all available communities.
+3. **Specify Communities**: If the config file is missing, it will generate one with all Communities. Simply add a "!" in front of a Community to exclude it.
+
+## Known Issues
+It will not check for the maximum path length (default is 260 characters) and will hard crash if the path within the community exceeds this limit.  
+When this occurs, you must either enable long paths on your system (or domain) or modify the folder path in the community first. The crash message will provide the problematic path for reference.
 
 ## Usage
 Execute the script with optional parameters for `Route` and `Delay`:
