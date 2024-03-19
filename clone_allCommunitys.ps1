@@ -22,9 +22,11 @@
 # Make a file where this script is located. The file must be named ltpaToken.txt and write your token inside this file.
 
 param (
-    [string]$communityRoute = "my",
+    [string]$communityRoute = "allmy",
     [int]$waitInLoop = 0
 )
+
+$sVersion = "3.2.0"
 
 # Path to 7-Zip Executable (Needed for deflation, because otherwise UTF8 Chars will be broken)
 $sevenZipPath = "C:\Program Files\7-Zip\7z.exe"
@@ -35,30 +37,23 @@ if (!(Test-Path $sevenZipPath)) {
 }
 
 # Base URL of the API (Edit Stuff here)
-$cookieDomain = "" # Update this to the domain of your API
+$cookieDomain = ""  # Update this to the domain of your API
 $baseServer = ""
 $baseUri = "$baseServer/files/form/api"
 
 $cookieFile = "./ltpaToken.txt"
 $communityFile = "./communitys.txt"
 
-if ($communityRoute -notin @("my", "owned")) {
+if ($communityRoute -notin @("allmy", "owned")) {
     # Check if only a valid parameter was passed
-    throw "Invalid value: $communityRoute. The variable must be either 'my' or 'owned'."
+    throw "Invalid value: $communityRoute. The variable must be either 'allmy' or 'owned'."
 }
 
 try {
     $cookieValue = Get-Content $cookieFile -Encoding UTF8 -ErrorAction Stop
 } catch {
-    Write-Host "Need help? Edit this file and look at info i left here"
+    Write-Host "Need help? https://github.com/BolverBlitz/HCL-Communities-Cloner?tab=readme-ov-file#how-to-obtain-your-ltpatoken2"
     Write-Error "Cookie Monster wants COOKIES!!! (Get your LtpaToken2 Token and put it into a file named ltpaToken.txt) - I promise, its fine"
-    exit
-}
-
-try {
-    $communityValue = Get-Content $communityFile -Encoding UTF8 -ErrorAction Stop
-} catch {
-    Write-Error "Please create a file called communitys.txt that contains all community names that should be cloned"
     exit
 }
 
@@ -90,7 +85,6 @@ function Special-Case-Function {
     param(
         [string]$title
     )
-    # Do something in those cases. $title refers to the full community name.
 }
 
 
@@ -126,17 +120,45 @@ function Write-Log {
         [Parameter(Mandatory=$true)]
         [string]$Message,
         [string]$txtColor = "White",
-        [string]$LogFilePath = "./log.txt" # Default log path
+        [string]$LogFilePath = "./log.txt",  # Default log path
+        [string]$ELogFilePath = "./error.txt"  # Default error log path
     )
+
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "$($timestamp): $Message"
     Write-Host $logEntry -ForegroundColor $txtColor
 
-    Invoke-WithRetry -ScriptBlock {
-        $logEntry | Out-File -FilePath $LogFilePath -Append -Encoding UTF8 -ErrorAction Stop
+    # Choose the appropriate log file based on the text color
+    $targetLogFilePath = $LogFilePath
+    if ($txtColor -eq "Red") {
+        $targetLogFilePath = $ELogFilePath
     }
-    
+
+    # Log the message to the chosen log file
+    Invoke-WithRetry -ScriptBlock {
+        $logEntry | Out-File -FilePath $targetLogFilePath -Append -Encoding UTF8 -ErrorAction Stop
+    }
 }
+
+function Check-ScriptVersion {
+    $url = "https://api.github.com/repos/BolverBlitz/HCL-Communities-Cloner/releases/latest"
+
+    try {
+        $latestRelease = Invoke-RestMethod -Uri $url
+        $latestVersion = $latestRelease.tag_name
+
+        if ($sVersion -eq $latestVersion) {
+            Write-Log "Your script is up to date. Current version: $sVersion." "Green"
+        } elseif ($sVersion -gt $latestVersion) {
+            Write-Log "Your script is ahead of the latest release. Your version: $sVersion. Latest release: $latestVersion." "Yellow"
+        } else {
+            Write-Log "A new version of the script is available: $latestVersion. Your current version:$sVersion." "Magenta"
+        }
+    } catch {
+        Write-Error "An error occurred while checking the script version: $_"
+    }
+}
+
 
 # Download a File
 function Download-File {
@@ -148,16 +170,52 @@ function Download-File {
         [Parameter(Mandatory=$true)]
         [string]$lastModifiedDate
     )
-    Invoke-WebRequest -Uri $fileUrl -WebSession $session -OutFile $localPath
 
-    # Convert the ISO 8601 formatted date strings to DateTime objects
-    $lastModifiedDateTime = [datetime]::Parse($lastModifiedDate, [Globalization.CultureInfo]::InvariantCulture)
+    # Target Folder exists
+    $directoryPath = Split-Path -Path $localPath -Parent
+    try {
+        if (-not [System.IO.Directory]::Exists($directoryPath)) {
+            [System.IO.Directory]::CreateDirectory($directoryPath) | Out-Null
+        }
+    }
+    catch {
+        Write-Log "Failed to process entries: $_" "Red"
+    }
 
-    # Set the creation and last modified times of the downloaded file
-    Invoke-WithRetry -ScriptBlock {
-        Set-ItemProperty -Path $localPath -Name LastWriteTime -Value $lastModifiedDateTime -ErrorAction Stop
+    # Create a tempFolder to store the file because Invoke-WebRequest can´t handle [] in folders or files
+    $tempDirectory = Join-Path -Path $PSScriptRoot -ChildPath "_script_Temp"
+    
+    # Temp Folder exists
+    if (-not [System.IO.Directory]::Exists($tempDirectory)) {
+        [System.IO.Directory]::CreateDirectory($tempDirectory) | Out-Null
+    }
+
+    $tempFileName = [IO.Path]::GetRandomFileName()
+    $tempPath = Join-Path -Path $tempDirectory -ChildPath $tempFileName
+
+    try {
+        Invoke-WebRequest -Uri $fileUrl -WebSession $session -OutFile $tempPath -ErrorAction Stop
+
+        if (-not [System.IO.Directory]::Exists($directoryPath)) {
+            [System.IO.Directory]::CreateDirectory($directoryPath) | Out-Null
+        }
+
+        # Useing copy because move con´t overwrite files
+        [System.IO.File]::Copy($tempPath, $localPath, $true)
+
+        Invoke-WithRetry -ScriptBlock {
+            # Convert the ISO 8601 formatted date strings to DateTime objects and set the last write time
+            $lastModifiedDateTime = [datetime]::Parse($lastModifiedDate, [Globalization.CultureInfo]::InvariantCulture)
+            [System.IO.File]::SetLastWriteTime($localPath, $lastModifiedDateTime)
+        }
+    } catch {
+        Write-Log "Failed to download the file or move it to the final location: $_" "Red"
+    } finally {
+        # Clean up the temporary directory after use
+        Remove-Item -Path $tempDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+
 # Handle URL Encodings
 function Sanitize-Title {
     param (
@@ -235,7 +293,12 @@ function Process-Entries {
                     # Get modify date of the folder
                     $lastModifiedDate = $entry.SelectSingleNode("td:modified", $ns).'#text'
                     $lastModifiedDateTime = [datetime]::Parse($lastModifiedDate, [Globalization.CultureInfo]::InvariantCulture)
-                    New-Item -ItemType Directory -Path $entryPath > $null # Create folder
+                    # Try to create the Folder
+                    try {
+                        [System.IO.Directory]::CreateDirectory($entryPath) | Out-Null
+                    } catch {
+                        Write-Error "Failed to create directory at path: $entryPath. Error: $_"
+                    }
                     Set-ItemProperty -Path $entryPath -Name LastWriteTime -Value $lastModifiedDateTime # Set last modify date for the folder
                 }
                 Write-Log "Processing folder: $title with UUID $newUuid at $entryPath" "Gray"
@@ -283,67 +346,64 @@ function Process-Files {
 
     $fileUrl = "$baseUri/communitycollection/$uuid/media/files.zip"
 
-    if (!(Test-Path -Path $title)) {
+    if (!(Test-Path -LiteralPath $parentPath)) {
         New-Item -ItemType Directory -Path $parentPath > $null
     }
 
-    Write-Log "Downloading and unziping all files for Community $parentPath with UUID $uuid (This may take a while)" "Yellow"
+    Write-Log "Downloading and unzipping all files for Community $parentPath with UUID $uuid (This may take a while)" "Yellow"
     $communityFilePath = Join-Path $parentPath "$uuid-files.zip"
     Invoke-WebRequest -Uri $fileUrl -WebSession $session -OutFile $communityFilePath
 
     $communityFilePathUnZip = Join-Path $parentPath "$uuid-files"
-    # Gonna retry because on remote filesystems (SMB Share) it might fail with higher latancy
+    # Using 7-Zip to extract files; ensure $sevenZipPath is correctly specified
     & $sevenZipPath x "$communityFilePath" -o"$communityFilePathUnZip" -aoa -sccUTF-8 2>$errorLog | Out-Null
 
-    # Check for errors from 7-zip (Stuscode)
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "An error occurred during extraction of 7-zip. $errorLog."
+        Write-Error "An error occurred during extraction with 7-zip. $errorLog."
         exit $LASTEXITCODE
     }
 
-    Remove-Item $communityFilePath # Delete ZIP File from local FS
+    Remove-Item -LiteralPath $communityFilePath # Delete ZIP File from local FS
 
-    # Check if ZIP file generated a output folder, it won´t do that when there where no Files in the community
-    if (!(Test-Path $communityFilePathUnZip)) {
+    if (!(Test-Path -LiteralPath $communityFilePathUnZip)) {
         Write-Log "Community $parentPath with UUID $uuid may not contain files, as the ZIP Archive resulted in 0 Files" "Red"
         return
     }
 
     $rootFolder = $parentPath
-    $allFilesFolderName = "$uuid-files" # Only the name of the folder, not the full path
+    $allFilesFolderName = "$uuid-files"
 
-    # Get all directories in the root folder except the "all files" folder
-    $directories = Get-ChildItem -Path $rootFolder -Directory | Where-Object Name -ne $allFilesFolderName
+    $directories = Get-ChildItem -LiteralPath $rootFolder -Directory | Where-Object Name -ne $allFilesFolderName
 
-    $filesInDirectories = @() # Get Folder List
+    $filesInDirectories = @()
 
-    # Iterate over each directory and subdirectory to populate list
     foreach ($dir in $directories) {
-        $filesInDirectories += Get-ChildItem -Path $dir.FullName -File -Recurse | Where-Object DirectoryName -notlike "*\$allFilesFolderName*" | ForEach-Object { $_.Name }
+        $filesInDirectories += Get-ChildItem -LiteralPath $dir.FullName -File -Recurse | Where-Object DirectoryName -notlike "*\$allFilesFolderName*" | ForEach-Object { $_.Name }
     }
 
-    # Remove duplicate file names
     $filesInDirectories = $filesInDirectories | Select-Object -Unique
 
-    # Define the full path to the "all files" folder
     $allFilesFolderPath = Join-Path -Path $rootFolder -ChildPath $allFilesFolderName
 
-    # Get all files from the "all files" folder
-    $allFiles = Get-ChildItem -Path $allFilesFolderPath -File
+    $allFiles = Get-ChildItem -LiteralPath $allFilesFolderPath -File
 
-    # Iterate over each file in the "all files" folder
     foreach ($file in $allFiles) {
-        # If the file name is in the list of files in the directories, delete it
         if ($filesInDirectories -contains $file.Name) {
             Write-Log "Deleting file: $($file.FullName)" "Magenta"
-            Remove-Item -Path $file.FullName
+            Remove-Item -LiteralPath $file.FullName
         }
-}
+    }
 
 }
+
 
 # Collect all communitys for "my" or "owned" with UUIDs and Names
 function Process-Communitys {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string[]]$filteredCommunityValue,
+        [switch]$genCommunity = $false
+    )
     $url = "$baseServer/communities/service/atom/forms/catalog/$($communityRoute)?results=500&start=0&sortKey=update_date&sortOrder=desc&facet=%7B%22id%22%3A%22tag%22%2C%22count%22%3A%2030%7D&format=XML&dojo.preventCache=$preventCache"
     $ErrorActionPreference = 'Stop'
 
@@ -381,6 +441,9 @@ function Process-Communitys {
     $ns.AddNamespace("td", "urn:ibm.com/td")
     $ns.AddNamespace("atom", "http://www.w3.org/2005/Atom")
 
+    # A list to store communitys, used for generating community file
+    $titlesList = New-Object System.Collections.Generic.List[System.String]
+
     # Loop over all items within a uuid to check for special cases
     foreach ($entry in $xml.SelectNodes("//atom:feed/atom:entry", $ns)) {
         $id = $entry.SelectSingleNode("atom:id", $ns).'#text'
@@ -392,11 +455,22 @@ function Process-Communitys {
         }
         $title = [regex]::Replace($title, '<!\[CDATA\[(.*?)\]\]>', '$1') # Clean up the title
 
+        # Check if we should generate the file and add titles
+        if($genCommunity) {
+            $titlesList.Add($title)
+        }
+
         foreach ($pattern in $specialCasePatterns) {
             if ($title.Contains($pattern)) {
                 Special-Case-Function $title
             }
         }
+    }
+    
+    if($genCommunity) {
+        # Write the list of titles to the file
+        $titlesList | Out-File -FilePath $communityFile
+        exit
     }
 
     # Loop over all items within a uuid
@@ -410,7 +484,7 @@ function Process-Communitys {
         }
         $title = [regex]::Replace($title, '<!\[CDATA\[(.*?)\]\]>', '$1') # Clean up the title
 
-        if ("ALL" -in $communityValue -or $title -in $communityValue) {
+        if ("ALL" -in $filteredCommunityValue -or $title -in $filteredCommunityValue) {
             Process-Entries -uuid $id -parentPath $title -isCommunity $true
             Process-Files -uuid $id -parentPath $title
         } else {
@@ -419,26 +493,38 @@ function Process-Communitys {
     }
 }
 
+# Check if the CommunityFile exists and if not then generate a new one
+try {
+    $communityValue = Get-Content $communityFile -Encoding UTF8 -ErrorAction Stop
+} catch {
+    Write-Error "A Community Config File was created, please add a NOT Operator (!) infront of all Communitys you want to exclude"
+    Process-Communitys -genCommunity $true
+}
+
 # Start Program
 Clear-Host
 Write-Host ""
 Write-Host "########################"
 Write-Host "# HCL Community Cloner #"
 Write-Host "# By BolverBlitz(Marc) #"
-Write-Host "#    Version 3.0.1     #"
+Write-Host "#    Version $sVersion     #"
 Write-Host "########################"
 Write-Host ""
 Write-Host "Give it a Star: https://github.com/BolverBlitz/HCL-Communities-Cloner"
 Write-Host ""
+Check-ScriptVersion
 Write-Log "Starting program with a internal delay of $waitInLoop ms"
-if ($communityRoute -eq "my") { $communityOf = "Checking all communitys you are a member of." }
+if ($communityRoute -eq "allmy") { $communityOf = "Checking all communitys you are a member of." }
 if ($communityRoute -eq "owned") { $communityOf = "Checking only communitys you are a owner of." }
 Write-Log $communityOf # Log one of the Lines above
-if("ALL" -in $communityValue) {
+
+$filteredCommunityValue = $communityValue | Where-Object {$_ -notmatch '^!'} # Filter all excluded Communits (! at the start is excluding)
+
+if("ALL" -in $filteredCommunityValue) {
     $promtMessage = "$($communityOf)`nDo you want to proceed cloning all of those communitys?`n"
 } else {
-    $promtMessage = "$($communityOf)`nDo you want to proceed cloning the following $($communityValue.Count) communitys?`n"
-    foreach ($community in $communityValue) {
+    $promtMessage = "$($communityOf)`nDo you want to proceed cloning the following $($filteredCommunityValue.Count) communitys?`n"
+    foreach ($community in $filteredCommunityValue) {
         $promtMessage = "$($promtMessage)- $community`n"
     }
 }
@@ -447,7 +533,7 @@ Write-Host ""
 Add-Type -AssemblyName System.Windows.Forms
 $result = [System.Windows.Forms.MessageBox]::Show("$promtMessage", "Confirmation", [System.Windows.Forms.MessageBoxButtons]::YesNo)
 if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
-    Process-Communitys
+    Process-Communitys -filteredCommunityValue $filteredCommunityValue
 } else {
     Write-Host "Exiting..."
     exit
