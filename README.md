@@ -18,7 +18,7 @@ When this occurs, you must either enable long paths on your system (or domain) o
 ## Usage
 Execute the script with optional parameters for `Route` and `Delay`:
 
-- `Route`: Can be either "my" or "owned". "my" refers to communities you are a member of, while "owned" refers to communities you own. (Optional, default is "my")
+- `Route`: Can be either "allmy" or "owned". "allmy" refers to communities you are a member of, while "owned" refers to communities you own. (Optional, default is "allmy")
 - `Delay`: Specifies the wait time in milliseconds (ms) between requests. This can be adjusted based on your server's response time. (Optional, default is 0 ms)
 
 ```powershell
