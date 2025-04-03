@@ -26,7 +26,7 @@ param (
     [int]$waitInLoop = 0
 )
 
-$sVersion = "3.2.0"
+$sVersion = "3.2.1"
 
 # Path to 7-Zip Executable (Needed for deflation, because otherwise UTF8 Chars will be broken)
 $sevenZipPath = "C:\Program Files\7-Zip\7z.exe"
@@ -173,9 +173,10 @@ function Download-File {
 
     # Target Folder exists
     $directoryPath = Split-Path -Path $localPath -Parent
+    $escapedPath = $directoryPath -replace '\[', '`[' -replace '\]', '`]'
     try {
-        if (-not [System.IO.Directory]::Exists($directoryPath)) {
-            [System.IO.Directory]::CreateDirectory($directoryPath) | Out-Null
+        if (-not (Test-Path -Path $escapedPath -PathType Container)) {
+            New-Item -ItemType Directory -Path $escapedPath > $null
         }
     }
     catch {
@@ -186,8 +187,9 @@ function Download-File {
     $tempDirectory = Join-Path -Path $PSScriptRoot -ChildPath "_script_Temp"
     
     # Temp Folder exists
-    if (-not [System.IO.Directory]::Exists($tempDirectory)) {
-        [System.IO.Directory]::CreateDirectory($tempDirectory) | Out-Null
+    if (-not (Test-Path -Path $tempDirectory -PathType Container)) {
+        # [System.IO.Directory]::CreateDirectory($tempDirectory) | Out-Null
+        New-Item -ItemType Directory -Path $tempDirectory > $null # Create folder
     }
 
     $tempFileName = [IO.Path]::GetRandomFileName()
@@ -196,17 +198,21 @@ function Download-File {
     try {
         Invoke-WebRequest -Uri $fileUrl -WebSession $session -OutFile $tempPath -ErrorAction Stop
 
-        if (-not [System.IO.Directory]::Exists($directoryPath)) {
-            [System.IO.Directory]::CreateDirectory($directoryPath) | Out-Null
+        if (-not (Test-Path -Path $escapedPath -PathType Container)) {
+            # [System.IO.Directory]::CreateDirectory($directoryPath) | Out-Null
+            New-Item -ItemType Directory -Path $escapedPath > $null # Create folder
         }
 
         # Useing copy because move con´t overwrite files
-        [System.IO.File]::Copy($tempPath, $localPath, $true)
+        # [System.IO.File]::Copy($tempPath, $localPath, $true)
+        Copy-Item -Path $tempPath -Destination $localPath -Force
 
         Invoke-WithRetry -ScriptBlock {
             # Convert the ISO 8601 formatted date strings to DateTime objects and set the last write time
             $lastModifiedDateTime = [datetime]::Parse($lastModifiedDate, [Globalization.CultureInfo]::InvariantCulture)
-            [System.IO.File]::SetLastWriteTime($localPath, $lastModifiedDateTime)
+            # [System.IO.File]::SetLastWriteTime($localPath, $lastModifiedDateTime)
+            $escapedLocalPath = $localPath -replace '\[', '`[' -replace '\]', '`]'
+            (Get-Item -Path $escapedLocalPath).LastWriteTime = $lastModifiedDateTime
         }
     } catch {
         Write-Log "Failed to download the file or move it to the final location: $_" "Red"
@@ -295,7 +301,8 @@ function Process-Entries {
                     $lastModifiedDateTime = [datetime]::Parse($lastModifiedDate, [Globalization.CultureInfo]::InvariantCulture)
                     # Try to create the Folder
                     try {
-                        [System.IO.Directory]::CreateDirectory($entryPath) | Out-Null
+                        # [System.IO.Directory]::CreateDirectory($entryPath) | Out-Null
+                        New-Item -ItemType Directory -Path $entryPath > $null # Create folder
                     } catch {
                         Write-Error "Failed to create directory at path: $entryPath. Error: $_"
                     }
